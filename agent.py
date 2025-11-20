@@ -456,7 +456,6 @@ def run_experiment_loop(hypothesis: str, test_mode: bool = False):
             joined_thoughts = "\n\n".join(thoughts)
             print_panel(joined_thoughts, "Agent Thinking", "thought")
             log_step("THOUGHT", joined_thoughts)
-            emit_event("AGENT_THOUGHT", {"thought": joined_thoughts})
 
         # 2. Show natural-language messages (plans, explanations, etc.).
         if messages:

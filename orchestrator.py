@@ -621,7 +621,6 @@ def run_orchestrator_loop(
             joined_thoughts = "\n\n".join(thoughts)
             print_panel(joined_thoughts, "Orchestrator Thinking", "thought")
             log_step("ORCH_THOUGHT", joined_thoughts)
-            emit_event("ORCH_THOUGHT", {"thought": joined_thoughts})
 
         # 2. Show natural-language messages (plans, explanations, etc.).
         if messages:
