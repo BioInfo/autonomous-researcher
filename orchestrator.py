@@ -385,7 +385,7 @@ def run_orchestrator_loop(
         
         # Step 1: Initial Thinking
         thought = (
-            "I need to decompose the research task into testable hypotheses.\n"
+            "I need to decompose the research task into testable hypotheses.\n\n"
             "Based on the request, I will investigate three main directions:\n"
             "1. Method X applicability\n"
             "2. Method Y optimization\n"
@@ -547,6 +547,17 @@ def run_orchestrator_loop(
         combined_text = "\n".join(thoughts + messages)
         if "[DONE]" in combined_text:
             # Orchestrator already produced the final paper and signaled completion.
+            # We need to emit the paper event so the frontend displays it.
+            if messages:
+                final_content = "\n\n".join(messages)
+                # Clean up the [DONE] token for better display
+                display_content = final_content.replace("[DONE]", "").strip()
+                
+                if display_content:
+                    print_panel(display_content, "Final Paper", "bold green")
+                    log_step("ORCH_FINAL", "Final paper generated (in loop).")
+                    emit_event("ORCH_PAPER", {"content": display_content})
+
             print_status("Orchestrator signaled completion.", "success")
             return
 
