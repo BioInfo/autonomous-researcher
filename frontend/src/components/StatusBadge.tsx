@@ -6,7 +6,7 @@ interface StatusBadgeProps {
 }
 
 export function StatusBadge({ status, className }: StatusBadgeProps) {
-  const config = {
+  const config: Record<StatusBadgeProps["status"], { text: string; dotColor: string; animate?: boolean }> = {
     idle: {
       text: "Idle",
       dotColor: "bg-[#333]",

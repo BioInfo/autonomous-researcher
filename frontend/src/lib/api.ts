@@ -29,6 +29,28 @@ export interface LogEvent {
     duration_seconds?: number;
 }
 
+export interface ChartSeries {
+    name: string;
+    values: number[];
+}
+
+export interface ChartSpec {
+    title?: string;
+    type: "line" | "bar";
+    labels: string[];
+    series: ChartSeries[];
+}
+
+export interface AgentSummaryRequest {
+    agent_id: string;
+    history: { type: "thought" | "code" | "result" | "text"; content: string }[];
+}
+
+export interface AgentSummaryResponse {
+    summary: string;
+    chart?: ChartSpec | null;
+}
+
 export async function streamExperiment(
     endpoint: "/api/experiments/single/stream" | "/api/experiments/orchestrator/stream",
     payload: ExperimentRequest,
@@ -80,4 +102,19 @@ export async function streamExperiment(
     } catch (error) {
         onError(error instanceof Error ? error : new Error(String(error)));
     }
+}
+
+export async function summarizeAgent(payload: AgentSummaryRequest): Promise<AgentSummaryResponse> {
+    const response = await fetch(`${API_BASE_URL}/api/agents/summarize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+        throw new Error(`Summarizer error: ${response.status} ${response.statusText}`);
+    }
+
+    const data = (await response.json()) as AgentSummaryResponse;
+    return data;
 }

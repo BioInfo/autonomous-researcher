@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from "react";
-import { Play, StopCircle, Plus } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { Play } from "lucide-react";
 import { motion } from "framer-motion";
 import { useExperiment } from "@/lib/useExperiment";
+import { FindingsRail } from "./FindingsRail";
 import { AgentNotebook } from "./Notebook/AgentNotebook";
 import { ResearchPaper } from "./Notebook/ResearchPaper";
 import { cn } from "@/lib/utils";
+import { StreamingMarkdown } from "./StreamingMarkdown";
 
 export function LabNotebook() {
   const { isRunning, agents, orchestrator, startExperiment } = useExperiment();
@@ -54,10 +54,11 @@ export function LabNotebook() {
   };
 
   return (
-    <div className="flex-1 h-screen overflow-hidden flex flex-col bg-black font-sans text-[#f5f5f7] selection:bg-[#333] selection:text-white">
+    <div className="flex h-screen w-full bg-black font-sans text-[#f5f5f7] selection:bg-[#333] selection:text-white">
+      <div className="flex-1 h-full overflow-hidden flex flex-col">
       
-      {/* Main Content Area */}
-      <main className="flex-1 flex flex-col overflow-hidden relative">
+        {/* Main Content Area */}
+        <main className="flex-1 flex flex-col overflow-hidden relative">
 
         {/* Sticky Header for Active Research */}
         {orchestrator.timeline.length > 0 && (
@@ -166,10 +167,11 @@ export function LabNotebook() {
 
                 {/* Timeline Rendering */}
                 {orchestrator.timeline.map((item, index) => {
+                    const key = item.timestamp ?? `${item.type}-${index}`;
                     if (item.type === "thought") {
                         return (
                             <motion.div 
-                                key={index} 
+                                key={key} 
                                 initial={{ opacity: 0, y: 20, filter: "blur(10px)" }}
                                 animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
                                 transition={{ duration: 0.8, ease: "easeOut" }}
@@ -179,18 +181,17 @@ export function LabNotebook() {
                                     <span className="block text-[10px] font-medium text-[#424245] uppercase tracking-widest mb-3">
                                         Orchestrator
                                     </span>
-                                    <div className="prose prose-invert prose-lg md:prose-xl max-w-none prose-p:text-[#d1d1d6] prose-p:font-light prose-p:leading-relaxed prose-strong:text-white prose-headings:text-white prose-code:text-[#d1d1d6] prose-pre:bg-[#1d1d1f] prose-pre:border prose-pre:border-[#333]">
-                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                            {item.content}
-                                        </ReactMarkdown>
-                                    </div>
+                                    <StreamingMarkdown
+                                        content={item.content}
+                                        markdownClassName="prose prose-invert prose-lg md:prose-xl max-w-none prose-p:text-[#d1d1d6] prose-p:font-light prose-p:leading-relaxed prose-strong:text-white prose-headings:text-white prose-code:text-[#d1d1d6] prose-pre:bg-[#1d1d1f] prose-pre:border prose-pre:border-[#333]"
+                                    />
                                 </div>
                             </motion.div>
                         );
                     } else if (item.type === "agents") {
                         return (
                             <motion.div 
-                                key={index} 
+                                key={key} 
                                 initial={{ opacity: 0, y: 20, filter: "blur(10px)" }}
                                 animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
                                 transition={{ duration: 0.8, ease: "easeOut" }}
@@ -219,7 +220,7 @@ export function LabNotebook() {
                     } else if (item.type === "paper") {
                         return (
                             <motion.div
-                                key={index}
+                                key={key}
                                 initial={{ opacity: 0, y: 20, filter: "blur(10px)" }}
                                 animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
                                 transition={{ duration: 0.8, ease: "easeOut" }}
@@ -248,9 +249,13 @@ export function LabNotebook() {
         </div>
       </main>
 
+      </div>
+      {/* Summaries rail on the right */}
+      <FindingsRail agents={agents} />
+
       {/* Minimal Fixed Header (Only visible when running) */}
       {isRunning && (
-          <div className="fixed top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 animate-gradient-x" />
+          <div className="fixed top-0 left-0 right-0 z-50 h-1 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 animate-gradient-x" />
       )}
     </div>
   );

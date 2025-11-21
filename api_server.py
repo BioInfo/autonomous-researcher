@@ -131,6 +131,40 @@ class OrchestratorExperimentRequest(BaseModel):
     )
 
 
+class SummaryHistoryItem(BaseModel):
+    """Minimal view of an agent step for sidebar summarization."""
+
+    type: Literal["thought", "code", "result", "text"] = Field(
+        ...,
+        description="Type of step (kept small to control context size).",
+    )
+    content: str = Field(
+        ..., description="Truncated text content of the step (agent thought or tool output)."
+    )
+
+
+class AgentSummaryRequest(BaseModel):
+    """Request body for Gemini-lite sidebar summaries."""
+
+    agent_id: str = Field(..., description="Sub-agent identifier")
+    history: List[SummaryHistoryItem] = Field(
+        ..., description="Last ~5 steps for this agent (already truncated on client)."
+    )
+
+
+class AgentSummaryResponse(BaseModel):
+    """Shape returned to the frontend for sidebar rendering."""
+
+    summary: str = Field(..., description="Short markdown-friendly finding")
+    chart: Optional[Dict[str, Any]] = Field(
+        None,
+        description=(
+            "Optional chart spec with keys: title, type(line|bar), labels, series. "
+            "Omitted if no obvious numeric progression."
+        ),
+    )
+
+
 class ProcessSummary(BaseModel):
     """
     Structured view of a completed CLI run.
@@ -202,6 +236,9 @@ app = FastAPI(
 )
 
 from fastapi.middleware.cors import CORSMiddleware
+
+# Optional, lightweight summarizer (kept outside agent logic)
+from insights import summarize_agent_findings
 
 app.add_middleware(
     CORSMiddleware,
@@ -558,6 +595,22 @@ def stream_orchestrator_experiment(
         "command": cmd,
     }
     return _stream_subprocess(cmd, meta=meta)
+
+
+@app.post(
+    "/api/agents/summarize",
+    response_model=AgentSummaryResponse,
+    summary="Summarize the last few sub-agent turns for the sidebar",
+)
+def summarize_agent(req: AgentSummaryRequest) -> AgentSummaryResponse:
+    """Run a cheap Gemini call that condenses recent agent thoughts/tool outputs."""
+
+    try:
+        result = summarize_agent_findings(req.agent_id, [item.model_dump() for item in req.history])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    return AgentSummaryResponse(**result)
 
 
 if __name__ == "__main__":

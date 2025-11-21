@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { streamExperiment, LogEvent } from "./api";
+import { streamExperiment, LogEvent, summarizeAgent, ChartSpec } from "./api";
 
 export type StepType = "thought" | "code" | "result" | "text";
 
@@ -11,6 +11,13 @@ export interface ExperimentStep {
     timestamp: number;
 }
 
+export interface AgentInsight {
+    id: string;
+    summary: string;
+    chart?: ChartSpec | null;
+    timestamp: number;
+}
+
 export interface AgentState {
     id: string;
     status: "idle" | "running" | "completed" | "failed";
@@ -19,6 +26,7 @@ export interface AgentState {
     logs: string[];
     exitCode?: number;
     steps: ExperimentStep[];
+    insights: AgentInsight[];
 }
 
 export type TimelineItem =
@@ -47,10 +55,12 @@ export function useExperiment() {
 
     // Keep track of the latest agents state to update it functionally
     const agentsRef = useRef<Record<string, AgentState>>({});
+    const summaryTimersRef = useRef<Record<string, NodeJS.Timeout | null>>({});
+    const summaryInflightRef = useRef<Record<string, boolean>>({});
 
     const updateAgent = (id: string, update: Partial<AgentState>) => {
         setAgents((prev) => {
-            const current = prev[id] || { id, status: "idle", logs: [], steps: [] };
+            const current = prev[id] || { id, status: "idle", logs: [], steps: [], insights: [] };
             const next = {
                 ...prev,
                 [id]: { ...current, ...update },
@@ -62,7 +72,7 @@ export function useExperiment() {
 
     const addAgentStep = (id: string, step: Omit<ExperimentStep, "id" | "timestamp">) => {
         setAgents((prev) => {
-            const current = prev[id] || { id, status: "idle", logs: [], steps: [] };
+            const current = prev[id] || { id, status: "idle", logs: [], steps: [], insights: [] };
             const newStep: ExperimentStep = {
                 ...step,
                 id: Math.random().toString(36).substring(7),
@@ -130,6 +140,31 @@ export function useExperiment() {
         });
     };
 
+    const addAgentInsight = (id: string, insight: Omit<AgentInsight, "id" | "timestamp"> & { id?: string; timestamp?: number }) => {
+        setAgents((prev) => {
+            const current = prev[id];
+            if (!current) return prev;
+
+            const nextInsight: AgentInsight = {
+                id: insight.id || Math.random().toString(36).substring(7),
+                timestamp: insight.timestamp || Date.now(),
+                summary: insight.summary,
+                chart: insight.chart,
+            };
+
+            const next = {
+                ...prev,
+                [id]: {
+                    ...current,
+                    insights: [...(current.insights || []), nextInsight],
+                },
+            };
+
+            agentsRef.current = next;
+            return next;
+        });
+    };
+
     const appendToLatestOrchestratorStep = (type: "thought" | "text", chunk: string) => {
         setOrchestrator((prev) => {
             const timeline = [...prev.timeline];
@@ -183,6 +218,51 @@ export function useExperiment() {
         });
     };
 
+    const runAgentSummary = async (agentId: string) => {
+        // Clear pending timer marker
+        summaryTimersRef.current[agentId] = null;
+
+        if (summaryInflightRef.current[agentId]) return;
+
+        const agent = agentsRef.current[agentId];
+        if (!agent || agent.steps.length === 0) return;
+
+        summaryInflightRef.current[agentId] = true;
+
+        try {
+            const recentSteps = agent.steps.slice(-5).map((step) => ({
+                type: step.type,
+                content: step.content.slice(-2000),
+            }));
+
+            const resp = await summarizeAgent({
+                agent_id: agentId,
+                history: recentSteps,
+            });
+
+            addAgentInsight(agentId, {
+                summary: resp.summary,
+                chart: resp.chart,
+            });
+        } catch (err) {
+            console.warn("Failed to summarize agent", agentId, err);
+        } finally {
+            summaryInflightRef.current[agentId] = false;
+        }
+    };
+
+    const scheduleAgentSummary = (agentId: string) => {
+        if (!agentId) return;
+
+        // debounce to wait for the end of a thought stream
+        const timers = summaryTimersRef.current;
+        if (timers[agentId]) {
+            clearTimeout(timers[agentId]!);
+        }
+
+        timers[agentId] = setTimeout(() => runAgentSummary(agentId), 900);
+    };
+
     const startExperiment = async (
         mode: "single" | "orchestrator",
         config: {
@@ -194,6 +274,11 @@ export function useExperiment() {
             test_mode?: boolean;
         }
     ) => {
+        // Reset any pending sidebar summary timers between runs
+        Object.values(summaryTimersRef.current).forEach((timer) => timer && clearTimeout(timer));
+        summaryTimersRef.current = {};
+        summaryInflightRef.current = {};
+
         setIsRunning(true);
         setError(null);
         setAgents({});
@@ -303,12 +388,14 @@ export function useExperiment() {
                         type: "thought",
                         content: data.thought,
                     });
+                    scheduleAgentSummary(inferredAgentId);
                 }
                 break;
 
             case "AGENT_THOUGHT_STREAM":
                 if (inferredAgentId && typeof data?.chunk === "string") {
                     appendToLatestAgentStep(inferredAgentId, "thought", data.chunk);
+                    scheduleAgentSummary(inferredAgentId);
                 }
                 break;
 
@@ -356,6 +443,8 @@ export function useExperiment() {
                             [inferredAgentId]: { ...current, steps }
                         };
                     });
+
+                    scheduleAgentSummary(inferredAgentId);
                 }
                 break;
 
@@ -373,6 +462,7 @@ export function useExperiment() {
                     status: "completed",
                     exitCode: data.exit_code,
                 });
+                scheduleAgentSummary(data.agent_id);
                 break;
 
             case "ORCH_THOUGHT":

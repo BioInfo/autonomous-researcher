@@ -106,3 +106,29 @@
     display: none !important;
   }
 }
+
+/* Subtle fade for streamed tokens */
+.stream-fade {
+  will-change: opacity, transform, filter;
+}
+
+.stream-fade--active {
+  animation: streamFade 0.42s ease-out;
+  animation-fill-mode: backwards;
+}
+
+@keyframes streamFade {
+  from {
+    opacity: 0.2;
+    transform: translateY(6px);
+    filter: blur(8px);
+  }
+  65% {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+  to {
+    opacity: 1;
+  }
+}

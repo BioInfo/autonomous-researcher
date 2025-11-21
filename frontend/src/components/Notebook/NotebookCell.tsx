@@ -1,9 +1,6 @@
-import { Brain, Terminal, ArrowRight, ChevronRight } from "lucide-react";
+import { Terminal, ArrowRight } from "lucide-react";
 import { ExperimentStep } from "@/lib/useExperiment";
-import { cn } from "@/lib/utils";
-
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { StreamingMarkdown } from "../StreamingMarkdown";
 
 interface NotebookCellProps {
     step: ExperimentStep;
@@ -20,11 +17,10 @@ export function NotebookCell({ step }: NotebookCellProps) {
                     <span className="text-[10px] font-medium text-[#424245] uppercase tracking-widest">Thinking</span>
                 </div>
                 <div className="pl-3 border-l border-[#1d1d1f] ml-0.5">
-                    <div className="prose prose-invert prose-sm max-w-none prose-p:text-[#86868b] prose-p:text-xs prose-p:leading-relaxed prose-p:font-light prose-headings:text-[#d1d1d6] prose-strong:text-[#d1d1d6] prose-code:text-[#d1d1d6] prose-pre:bg-[#1d1d1f] prose-pre:border prose-pre:border-[#333] [&>*:first-child]:mt-0">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                            {content}
-                        </ReactMarkdown>
-                    </div>
+                    <StreamingMarkdown
+                        content={content}
+                        markdownClassName="prose prose-invert prose-sm max-w-none prose-p:text-[#86868b] prose-p:text-xs prose-p:leading-relaxed prose-p:font-light prose-headings:text-[#d1d1d6] prose-strong:text-[#d1d1d6] prose-code:text-[#d1d1d6] prose-pre:bg-[#1d1d1f] prose-pre:border prose-pre:border-[#333] [&>*:first-child]:mt-0"
+                    />
                 </div>
             </div>
         );
