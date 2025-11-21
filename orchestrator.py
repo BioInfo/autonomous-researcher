@@ -3,6 +3,7 @@ import sys
 import json
 import subprocess
 import threading
+import re
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional, Dict, Any
 
@@ -15,6 +16,34 @@ from logger import print_panel, print_status, log_step, logger
 # Global orchestrator state
 _default_gpu: Optional[str] = None
 _experiment_counter: int = 0
+
+# Regex for stripping ANSI escape sequences (Rich colour codes, etc.).
+ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
+
+
+def _strip_ansi(text: str) -> str:
+    """Remove ANSI colour / style escape sequences from terminal output."""
+    return ANSI_ESCAPE_RE.sub("", text)
+
+
+def _clean_transcript_for_llm(transcript: str) -> str:
+    """
+    Produce a cleaned transcript suitable for LLM consumption:
+
+    - Strip ANSI escape codes.
+    - Drop structured event lines (prefixed with ::EVENT::) that are meant
+      solely for the UI / telemetry.
+    """
+    # 1) Drop ANSI / style codes
+    clean = _strip_ansi(transcript)
+
+    # 2) Remove raw event lines
+    cleaned_lines: List[str] = []
+    for line in clean.splitlines():
+        if line.startswith("::EVENT::"):
+            continue
+        cleaned_lines.append(line)
+    return "\n".join(cleaned_lines)
 
 
 def emit_event(event_type: str, data: Dict[str, Any]) -> None:
@@ -206,6 +235,7 @@ def run_researcher(hypothesis: str, gpu: Optional[str] = None, test_mode: bool =
                 "gpu": Optional[str],
                 "exit_code": int,
                 "transcript": str,
+                "llm_transcript": str,
             }
     """
     global _experiment_counter, _default_gpu
@@ -315,23 +345,52 @@ def run_researcher(hypothesis: str, gpu: Optional[str] = None, test_mode: bool =
         + "".join(stderr_chunks)
     )
 
-    # Guard against enormous transcripts.
+    # Guard against enormous transcripts: preserve both head and tail so
+    # the final report (typically near the end) is retained for reasoning.
     max_len = 120_000
     if len(transcript) > max_len:
+        head_len = max_len // 2
+        tail_len = max_len - head_len
         transcript = (
-            transcript[:max_len]
-            + "\n...[TRANSCRIPT TRUNCATED BY ORCHESTRATOR FOR CONTEXT SIZE]...\n"
+            transcript[:head_len]
+            + "\n...[MIDDLE OF TRANSCRIPT TRUNCATED BY ORCHESTRATOR FOR CONTEXT SIZE]...\n"
+            + transcript[-tail_len:]
         )
+
+    # Build a cleaned version specifically for the LLM that strips ANSI and
+    # UI-only event lines, while leaving CLI / UI behavior untouched.
+    llm_transcript = _clean_transcript_for_llm(transcript)
 
     result: Dict[str, Any] = {
         "experiment_id": experiment_id,
         "hypothesis": hypothesis,
         "gpu": assigned_gpu,
         "exit_code": exit_code,
+        # Raw transcript (with prefixes etc.) for debugging / UI:
         "transcript": transcript,
+        # Cleaned transcript for the orchestrator LLM:
+        "llm_transcript": llm_transcript,
     }
 
     return result
+
+
+def _build_llm_experiment_result(raw_result: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Produce a slim, LLM-facing view of an experiment result.
+
+    This keeps the fields the orchestrator needs to reason,
+    while using the cleaned transcript variant if available.
+    """
+    return {
+        "experiment_id": raw_result.get("experiment_id"),
+        "hypothesis": raw_result.get("hypothesis"),
+        "gpu": raw_result.get("gpu"),
+        "exit_code": raw_result.get("exit_code"),
+        # Prefer the cleaned transcript for the LLM, falling back to raw
+        # if for any reason the cleaned variant is missing.
+        "transcript": raw_result.get("llm_transcript") or raw_result.get("transcript", ""),
+    }
 
 
 def run_orchestrator_loop(
@@ -718,13 +777,14 @@ def run_orchestrator_loop(
 
         # Feed each tool response back as a TOOL message with a functionResponse part.
         for result in results_for_history:
+            llm_result = _build_llm_experiment_result(result)
             history.append(
                 types.Content(
                     role="tool",
                     parts=[
                         types.Part.from_function_response(
                             name="run_researcher",
-                            response={"result": result},
+                            response={"result": llm_result},
                         )
                     ],
                 )

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Play, StopCircle, Plus } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { motion } from "framer-motion";
 import { useExperiment } from "@/lib/useExperiment";
 import { AgentNotebook } from "./Notebook/AgentNotebook";
 import { ResearchPaper } from "./Notebook/ResearchPaper";
@@ -167,7 +168,13 @@ export function LabNotebook() {
                 {orchestrator.timeline.map((item, index) => {
                     if (item.type === "thought") {
                         return (
-                            <div key={index} className="w-full animate-in fade-in slide-in-from-bottom-8 duration-700">
+                            <motion.div 
+                                key={index} 
+                                initial={{ opacity: 0, y: 20, filter: "blur(10px)" }}
+                                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                                transition={{ duration: 0.8, ease: "easeOut" }}
+                                className="w-full"
+                            >
                                 <div className="pl-6 border-l border-[#333] py-2">
                                     <span className="block text-[10px] font-medium text-[#424245] uppercase tracking-widest mb-3">
                                         Orchestrator
@@ -178,11 +185,17 @@ export function LabNotebook() {
                                         </ReactMarkdown>
                                     </div>
                                 </div>
-                            </div>
+                            </motion.div>
                         );
                     } else if (item.type === "agents") {
                         return (
-                            <div key={index} className="space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-700">
+                            <motion.div 
+                                key={index} 
+                                initial={{ opacity: 0, y: 20, filter: "blur(10px)" }}
+                                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                                transition={{ duration: 0.8, ease: "easeOut" }}
+                                className="space-y-8"
+                            >
                                 <div className="flex items-center gap-3">
                                     <div className="h-[1px] w-8 bg-[#333]" />
                                     <span className="text-[10px] font-medium text-[#424245] uppercase tracking-widest">
@@ -201,10 +214,19 @@ export function LabNotebook() {
                                         );
                                     })}
                                 </div>
-                            </div>
+                            </motion.div>
                         );
                     } else if (item.type === "paper") {
-                        return <ResearchPaper key={index} content={item.content} />;
+                        return (
+                            <motion.div
+                                key={index}
+                                initial={{ opacity: 0, y: 20, filter: "blur(10px)" }}
+                                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                                transition={{ duration: 0.8, ease: "easeOut" }}
+                            >
+                                <ResearchPaper content={item.content} />
+                            </motion.div>
+                        );
                     }
                     return null;
                 })}
