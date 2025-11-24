@@ -247,6 +247,16 @@ export function LabNotebook() {
                                         <option value="gemini-3-pro-preview">Gemini 3 Pro</option>
                                         <option value="claude-opus-4-5">Claude Opus 4.5</option>
                                     </select>
+                                    <div className="h-4 w-[1px] bg-[#333]" />
+                                    <button
+                                        onClick={() => setShowCredentialPrompt(true)}
+                                        className="text-[#86868b] hover:text-white transition-colors"
+                                        title="API Keys"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+                                        </svg>
+                                    </button>
                                 </div>
 
                                 <div className="flex flex-col items-end gap-2">
