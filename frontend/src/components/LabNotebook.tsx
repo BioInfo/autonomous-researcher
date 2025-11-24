@@ -283,6 +283,26 @@ export function LabNotebook() {
                     </div>
                 )}
 
+                {/* Error State (Visible when experiment failed) */}
+                {experimentError && !isRunning && orchestrator.timeline.length === 0 && (
+                    <div className="min-h-[60vh] flex flex-col justify-center items-center space-y-8 animate-in fade-in duration-700">
+                        <div className="space-y-4 text-center max-w-lg">
+                            <div className="w-16 h-16 mx-auto rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center">
+                                <span className="text-2xl">⚠️</span>
+                            </div>
+                            <h2 className="text-xl font-light text-white tracking-wide">
+                                Experiment Failed
+                            </h2>
+                            <p className="text-sm text-red-300 font-mono bg-red-500/10 border border-red-500/20 rounded-lg p-4">
+                                {experimentError}
+                            </p>
+                            <p className="text-xs text-[#86868b]">
+                                Check your API keys and try again. If using Claude Opus 4.5, make sure your Anthropic API key is set.
+                            </p>
+                        </div>
+                    </div>
+                )}
+
                 {/* Loading State (Visible when running but no timeline events yet) */}
                 {orchestrator.timeline.length === 0 && isRunning && (
                     <div className="min-h-[60vh] flex flex-col justify-center items-center space-y-8 animate-in fade-in duration-700">
