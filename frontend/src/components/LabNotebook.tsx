@@ -24,7 +24,7 @@ type PendingRun = {
 };
 
 export function LabNotebook() {
-  const { isRunning, agents, orchestrator, startExperiment } = useExperiment();
+  const { isRunning, agents, orchestrator, error: experimentError, startExperiment } = useExperiment();
   const [task, setTask] = useState("");
   const [mode, setMode] = useState<"single" | "orchestrator">("orchestrator");
   const [testMode, setTestMode] = useState(false);
