@@ -308,6 +308,22 @@ export function useExperiment() {
                 (event) => {
                     setLogs((prev) => [...prev, event]);
 
+                    // Check for subprocess completion with error
+                    if (event.type === "summary" && event.exit_code !== 0) {
+                        // Find any error messages from stderr in recent logs
+                        setLogs((prevLogs) => {
+                            const recentStderr = prevLogs
+                                .filter((l) => l.stream === "stderr" && l.plain)
+                                .slice(-5)
+                                .map((l) => l.plain?.trim())
+                                .filter(Boolean)
+                                .join("\n");
+                            const errorMsg = recentStderr || `Process exited with code ${event.exit_code}`;
+                            setError(errorMsg);
+                            return prevLogs;
+                        });
+                    }
+
                     if (event.type === "line" && event.plain) {
                         // Check for ::EVENT:: marker
                         const eventIndex = event.plain.indexOf("::EVENT::");
