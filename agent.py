@@ -2,6 +2,7 @@ import os
 import sys
 import threading
 import json
+import subprocess
 from typing import Optional, List
 
 from google import genai
@@ -13,6 +14,40 @@ from logger import print_panel, print_status, log_step, logger
 
 import modal
 from modal.stream_type import StreamType
+
+
+def _get_keychain_password(service: str, account: str = None) -> Optional[str]:
+    """Retrieve a password from macOS Keychain."""
+    try:
+        if account:
+            # Internet password (server-based)
+            cmd = ["security", "find-internet-password", "-s", service, "-a", account, "-w"]
+        else:
+            # Generic password
+            cmd = ["security", "find-generic-password", "-s", service, "-w"]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return None
+
+
+def _get_hf_credentials() -> tuple[Optional[str], Optional[str]]:
+    """Get HuggingFace credentials from environment or keychain."""
+    # First try environment variables
+    hf_token = os.environ.get("HF_TOKEN")
+    hf_username = os.environ.get("HF_USERNAME")
+
+    # Fall back to keychain (macOS)
+    if not hf_token:
+        hf_token = _get_keychain_password("huggingface-token")
+
+    # Default username if not set
+    if not hf_username:
+        hf_username = "BioInfo"  # Default to GitHub username
+
+    return hf_token, hf_username
 
 # Cache a single sandbox per run so the agent can keep state across tool calls.
 _shared_sandbox: Optional[modal.Sandbox] = None
@@ -86,7 +121,7 @@ def _get_shared_sandbox(gpu: Optional[str]) -> modal.Sandbox:
     # Define a robust image with common dependencies (built once).
     image = (
         modal.Image.debian_slim()
-        .pip_install("numpy", "pandas", "torch", "scikit-learn", "matplotlib")
+        .pip_install("numpy", "pandas", "torch", "scikit-learn", "matplotlib", "huggingface_hub", "datasets")
     )
 
     # Create a Modal App to associate with the Sandbox
@@ -97,6 +132,13 @@ def _get_shared_sandbox(gpu: Optional[str]) -> modal.Sandbox:
     # Keep the sandbox alive by running an inert loop; subcommands run via sandbox.exec.
     gpu_msg = f"gpu={gpu}" if gpu else "cpu-only"
     log_step("EXECUTION", f"Creating persistent Sandbox (keep-alive loop, {gpu_msg})...")
+
+    # Pass HuggingFace token to sandbox for artifact uploads
+    hf_token, _ = _get_hf_credentials()
+    sandbox_secrets = {}
+    if hf_token:
+        sandbox_secrets["HF_TOKEN"] = hf_token
+
     _shared_sandbox = modal.Sandbox.create(
         "bash",
         "-lc",
@@ -105,6 +147,7 @@ def _get_shared_sandbox(gpu: Optional[str]) -> modal.Sandbox:
         image=image,
         timeout=7200,
         gpu=gpu,
+        secrets=[modal.Secret.from_dict(sandbox_secrets)] if sandbox_secrets else [],
     )
     _shared_gpu = gpu
     log_step("EXECUTION", "Persistent Sandbox ready.")
@@ -245,15 +288,47 @@ def _build_claude_tool_definition() -> dict:
 
 def _build_system_prompt(gpu_hint: str) -> str:
     """System-level instructions for the Gemini agent."""
+    hf_instructions = ""
+    hf_token, hf_user = _get_hf_credentials()
+    if hf_token:
+        hf_instructions = f"""
+
+HuggingFace Integration:
+- The sandbox has `huggingface_hub` and `datasets` installed.
+- HF_TOKEN is available in the environment for authentication.
+- To upload models/datasets, use this pattern in your sandbox code:
+
+```python
+import os
+from huggingface_hub import HfApi, upload_folder, upload_file
+
+# Login is automatic via HF_TOKEN environment variable
+api = HfApi()
+
+# Upload a trained model
+api.create_repo("{hf_user}/experiment-name", repo_type="model", exist_ok=True)
+upload_folder(folder_path="./model_output", repo_id="{hf_user}/experiment-name")
+
+# Or upload a dataset
+from datasets import Dataset
+dataset = Dataset.from_dict({{"col1": [...], "col2": [...]}})
+dataset.push_to_hub("{hf_user}/dataset-name")
+```
+
+- ALWAYS upload significant artifacts (trained models, processed datasets, results) to HuggingFace.
+- Use descriptive repo names like "{hf_user}/experiment-topic-YYYYMMDD".
+- Include a README.md with experiment details in your uploads."""
+
     return f"""You are an autonomous research scientist.
 Your job is to rigorously verify the user's hypothesis using experiments
 run in a Python sandbox.
 
 Tool:
 - `execute_in_sandbox(code: str)`: Runs a Python script in a persistent Modal Sandbox.
-  - Preinstalled: numpy, pandas, torch, scikit-learn, matplotlib.
+  - Preinstalled: numpy, pandas, torch, scikit-learn, matplotlib, huggingface_hub, datasets.
   - Compute: Sandbox GPU request for this run: {gpu_hint}.
   - The code runs as a normal Python script; no need to import `modal`.
+{hf_instructions}
 
 Working loop:
 1. **Think before acting.** Plan your next step in natural language.
@@ -261,7 +336,8 @@ Working loop:
 2. **Act with tools.** When you need computation, call `execute_in_sandbox`
    with a complete, self-contained script.
 3. **Observe and update.** Interpret tool results and decide what to do next.
-4. **Finish clearly.** When you have confidently verified or falsified
+4. **Save artifacts.** If you trained a model or created a dataset, upload it to HuggingFace.
+5. **Finish clearly.** When you have confidently verified or falsified
    the hypothesis, write a short natural-language conclusion and then a
    final line that contains only `[DONE]`.
 """
