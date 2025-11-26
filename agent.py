@@ -45,7 +45,7 @@ def _get_hf_credentials() -> tuple[Optional[str], Optional[str]]:
 
     # Default username if not set
     if not hf_username:
-        hf_username = "BioInfo"  # Default to GitHub username
+        hf_username = "RyeCatcher"  # HuggingFace username
 
     return hf_token, hf_username
 
