@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
 from rich.logging import RichHandler
@@ -17,13 +18,30 @@ custom_theme = Theme({
 
 console = Console(theme=custom_theme)
 
-def setup_logging():
+# Global logger instance and log file path
+logger = None
+_log_file_path = None
+
+def setup_logging(log_file_path: str = "agent.log"):
     """Sets up logging to both file and console."""
+    global logger, _log_file_path
+
+    _log_file_path = log_file_path
+
+    # Ensure directory exists
+    log_path = Path(log_file_path)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Remove existing handlers
+    root_logger = logging.getLogger()
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
         handlers=[
-            logging.FileHandler("agent.log"),
+            logging.FileHandler(log_file_path),
             # We don't add RichHandler here because we want manual control over console output
             # to keep it "elegant" and not just a stream of logs.
         ]
@@ -31,9 +49,15 @@ def setup_logging():
     # Create a separate logger for the file that doesn't propagate to root
     file_logger = logging.getLogger("agent_file")
     file_logger.setLevel(logging.DEBUG)
+    logger = file_logger
     return file_logger
 
-# Global file logger instance
+def set_log_file(log_file_path: str):
+    """Update the log file path dynamically."""
+    global logger
+    logger = setup_logging(log_file_path)
+
+# Initialize with default log file (will be updated when experiment starts)
 logger = setup_logging()
 
 def log_step(step_name, status="INFO"):

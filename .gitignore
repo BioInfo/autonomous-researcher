@@ -2,7 +2,6 @@
 .env
 .env.*
 CLAUDE.md
-reports/
 
 # Python
 venv/

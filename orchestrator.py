@@ -4,6 +4,8 @@ import json
 import subprocess
 import threading
 import re
+from datetime import datetime
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional, Dict, Any
 
@@ -12,16 +14,44 @@ from google.genai import types
 
 import anthropic
 
-from logger import print_panel, print_status, log_step, logger
+from logger import print_panel, print_status, log_step, logger, set_log_file
 
 
 # Global orchestrator state
 _default_gpu: Optional[str] = None
 _default_model: str = "gemini-3-pro-preview"
 _experiment_counter: int = 0
+_experiment_dir: Optional[Path] = None
 
 # Regex for stripping ANSI escape sequences (Rich colour codes, etc.).
 ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
+
+
+def _create_experiment_directory(research_task: str) -> Path:
+    """Create and return experiment directory in ~/workspace/experiments/active."""
+    global _experiment_dir
+
+    # Create base directory structure
+    workspace_base = Path.home() / "workspace" / "experiments" / "active"
+    workspace_base.mkdir(parents=True, exist_ok=True)
+
+    # Create experiment-specific directory with timestamp and sanitized task name
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    sanitized_task = re.sub(r'[^\w\s-]', '', research_task)[:50].strip().replace(' ', '-').lower()
+    exp_name = f"{timestamp}-{sanitized_task}"
+
+    exp_dir = workspace_base / exp_name
+    exp_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create subdirectories
+    (exp_dir / "logs").mkdir(exist_ok=True)
+    (exp_dir / "reports").mkdir(exist_ok=True)
+    (exp_dir / "artifacts").mkdir(exist_ok=True)
+
+    _experiment_dir = exp_dir
+    log_step("EXPERIMENT_SETUP", f"Created experiment directory: {exp_dir}")
+
+    return exp_dir
 
 
 def _strip_ansi(text: str) -> str:
@@ -447,14 +477,23 @@ def run_orchestrator_loop(
     if test_mode:
         print_status("TEST MODE ENABLED: Using mock data and skipping LLM calls.", "bold yellow")
         import time
-        
+
+        # Create experiment directory even in test mode
+        exp_dir = _create_experiment_directory(research_task)
+        print_status(f"Experiment directory: {exp_dir}", "info")
+
+        # Set log file to experiment directory
+        log_file = exp_dir / "logs" / "orchestrator.log"
+        set_log_file(str(log_file))
+        log_step("ORCHESTRATOR_START", f"Research task (TEST MODE): {research_task}")
+
         # Mock Orchestrator Loop
         mock_hypotheses = [
             f"Hypothesis A: {research_task} can be solved by method X.",
             f"Hypothesis B: {research_task} requires method Y optimization.",
             f"Hypothesis C: {research_task} is sensitive to hyperparameter Z."
         ]
-        
+
         # Step 1: Initial Thinking
         thought = (
             "I need to decompose the research task into testable hypotheses.\n\n"
@@ -517,6 +556,22 @@ def run_orchestrator_loop(
         print_panel(final_paper, "Final Paper", "bold green")
         log_step("ORCH_FINAL", "Final paper generated.")
         emit_event("ORCH_PAPER", {"content": final_paper})
+
+        # Save final paper to experiment directory
+        if _experiment_dir and final_paper.strip():
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
+            sanitized_task = re.sub(r'[^\w\s-]', '', research_task)[:50].strip().replace(' ', '-').lower()
+            report_filename = f"{timestamp}_{sanitized_task}.md"
+            report_path = _experiment_dir / "reports" / report_filename
+
+            try:
+                report_path.write_text(final_paper, encoding='utf-8')
+                print_status(f"Final report saved to: {report_path}", "success")
+                log_step("REPORT_SAVED", str(report_path))
+            except Exception as e:
+                print_status(f"Failed to save report: {e}", "error")
+                logger.error(f"Failed to save report to {report_path}: {e}")
+
         return
 
     print_status(f"Model: {model}", "info")
@@ -577,6 +632,15 @@ def _run_claude_orchestrator_loop(
 ) -> None:
     """Run the orchestrator loop using Claude Opus 4.5 with extended thinking."""
     print_status("Claude extended thinking enabled", "info")
+
+    # Create experiment directory
+    exp_dir = _create_experiment_directory(research_task)
+    print_status(f"Experiment directory: {exp_dir}", "info")
+
+    # Set log file to experiment directory
+    log_file = exp_dir / "logs" / "orchestrator.log"
+    set_log_file(str(log_file))
+    log_step("ORCHESTRATOR_START", f"Research task: {research_task}")
 
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     system_prompt = _build_orchestrator_system_prompt(
@@ -879,6 +943,21 @@ def _run_claude_orchestrator_loop(
         print_panel(final_paper, "Final Paper", "bold green")
         log_step("ORCH_FINAL", "Final paper generated.")
         emit_event("ORCH_PAPER", {"content": final_paper})
+
+        # Save final paper to experiment directory
+        if _experiment_dir and final_paper.strip():
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
+            sanitized_task = re.sub(r'[^\w\s-]', '', research_task)[:50].strip().replace(' ', '-').lower()
+            report_filename = f"{timestamp}_{sanitized_task}.md"
+            report_path = _experiment_dir / "reports" / report_filename
+
+            try:
+                report_path.write_text(final_paper, encoding='utf-8')
+                print_status(f"Final report saved to: {report_path}", "success")
+                log_step("REPORT_SAVED", str(report_path))
+            except Exception as e:
+                print_status(f"Failed to save report: {e}", "error")
+                logger.error(f"Failed to save report to {report_path}: {e}")
     except Exception as e:
         print_status(f"Failed to generate final paper: {e}", "error")
         logger.error(f"Failed to generate final paper: {e}")
@@ -893,6 +972,15 @@ def _run_gemini_orchestrator_loop(
 ) -> None:
     """Run the orchestrator loop using Gemini 3 Pro with thinking mode."""
     print_status("Gemini thinking: HIGH (thought summaries visible)", "info")
+
+    # Create experiment directory
+    exp_dir = _create_experiment_directory(research_task)
+    print_status(f"Experiment directory: {exp_dir}", "info")
+
+    # Set log file to experiment directory
+    log_file = exp_dir / "logs" / "orchestrator.log"
+    set_log_file(str(log_file))
+    log_step("ORCHESTRATOR_START", f"Research task: {research_task}")
 
     client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
 
@@ -1235,10 +1323,25 @@ def _run_gemini_orchestrator_loop(
         for part in final_parts:
              if part.text and not getattr(part, "thought", False):
                  final_text += part.text
-                 
+
         print_panel(final_text, "Final Paper", "bold green")
         log_step("ORCH_FINAL", "Final paper generated.")
         emit_event("ORCH_PAPER", {"content": final_text})
+
+        # Save final paper to experiment directory
+        if _experiment_dir and final_text.strip():
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
+            sanitized_task = re.sub(r'[^\w\s-]', '', research_task)[:50].strip().replace(' ', '-').lower()
+            report_filename = f"{timestamp}_{sanitized_task}.md"
+            report_path = _experiment_dir / "reports" / report_filename
+
+            try:
+                report_path.write_text(final_text, encoding='utf-8')
+                print_status(f"Final report saved to: {report_path}", "success")
+                log_step("REPORT_SAVED", str(report_path))
+            except Exception as e:
+                print_status(f"Failed to save report: {e}", "error")
+                logger.error(f"Failed to save report to {report_path}: {e}")
     except Exception as e:
         print_status(f"Failed to generate final paper: {e}", "error")
         logger.error(f"Failed to generate final paper: {e}")
