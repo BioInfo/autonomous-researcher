@@ -8,21 +8,28 @@
 - Implemented `_run_openai_orchestrator_loop` in orchestrator.py
 - Added `openai` to requirements.txt
 
-### 2. Local Execution Mode
+### 2. Ollama Local Model Support
+- Added `--model ollama:<model-name>` option (e.g., `ollama:qwen2.5:14b`)
+- Uses OpenAI-compatible API at localhost:11434/v1
+- No API keys required - fully local execution
+- Implemented `_run_ollama_experiment_loop` in agent.py
+- Implemented `_run_ollama_orchestrator_loop` in orchestrator.py
+
+### 3. Local Execution Mode
 - Added `--local` flag to run experiments on local machine (no Modal)
 - Implemented `execute_locally()` function in agent.py
 - Local mode propagates to child agents in orchestrator
 
-### 3. CLI Wrapper
+### 4. CLI Wrapper
 - Created `run_cli.py` for automatic venv setup
 - Auto-creates venv if missing, installs dependencies, forwards args to main.py
 
-### 4. Paper Extraction & LaTeX
+### 5. Paper Extraction & LaTeX
 - Created `extract_paper.py` to extract papers from orchestrator logs
 - Created `md_to_latex.py` to convert markdown to LaTeX
 - Created `compile_latex.sh` to compile LaTeX on remote system via SSH
 
-### 5. Bug Fixes
+### 6. Bug Fixes
 - Fixed auto-save of final reports when [DONE] detected mid-loop
 
 ## Usage

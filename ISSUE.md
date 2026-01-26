@@ -79,9 +79,14 @@ provide command to test with local
   Note: This will still hit the OpenAI rate limit issue after experiments complete. To avoid that, consider using Claude instead:   
   python main.py "Characterize scaling laws for sparse attention transformers" --mode orchestrator --model claude-opus-4-5 --local  
 
+
+run_cli.py "Research task" --mode orchestrator --model ollama:qwen2.5:14b --local
+run_cli.py "Characterize scaling laws for sparse attention transformers" --mode orchestrator --model ollama:qwen2.5:14b --local
+
 smaller,faster
 
 run_cli.py "Characterize scaling laws for sparse attention transformers" --mode orchestrator --model ollama:llama3.1:8b
+
 
 
 run_cli.py "Characterize scaling laws for sparse attention transformers" --mode orchestrator --model ollama:qwen2.5:14b

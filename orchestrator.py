@@ -420,6 +420,15 @@ def run_researcher(hypothesis: str, gpu: Optional[str] = None, test_mode: bool =
     # UI-only event lines, while leaving CLI / UI behavior untouched.
     llm_transcript = _clean_transcript_for_llm(transcript)
 
+    # Save agent transcript to experiment directory
+    if _experiment_dir:
+        transcript_path = _experiment_dir / "logs" / f"agent_{experiment_id}_transcript.txt"
+        try:
+            transcript_path.write_text(transcript, encoding='utf-8')
+            log_step("AGENT_TRANSCRIPT_SAVED", str(transcript_path))
+        except Exception as e:
+            log_step("WARNING", f"Failed to save agent transcript: {e}")
+
     result: Dict[str, Any] = {
         "experiment_id": experiment_id,
         "hypothesis": hypothesis,
