@@ -83,11 +83,11 @@ def main():
     parser.add_argument(
         "--model",
         type=str,
-        choices=["gemini-3-pro-preview", "claude-opus-4-5", "gpt-4o"],
         default="gemini-3-pro-preview",
         help=(
             "LLM model to use: "
-            "'gemini-3-pro-preview' (default), 'claude-opus-4-5', or 'gpt-4o'."
+            "'gemini-3-pro-preview' (default), 'claude-opus-4-5', 'gpt-4o', "
+            "or 'ollama:<model-name>' for local Ollama models (e.g., 'ollama:qwen2.5:14b')."
         ),
     )
 

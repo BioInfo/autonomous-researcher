@@ -509,6 +509,9 @@ def run_experiment_loop(hypothesis: str, test_mode: bool = False, model: str = "
         _run_claude_experiment_loop(hypothesis, gpu_hint)
     elif model == "gpt-4o":
         _run_openai_experiment_loop(hypothesis, gpu_hint)
+    elif model.startswith("ollama:"):
+        ollama_model = model.split(":", 1)[1]
+        _run_ollama_experiment_loop(hypothesis, gpu_hint, ollama_model)
     else:
         _run_gemini_experiment_loop(hypothesis, gpu_hint)
 
@@ -1007,6 +1010,127 @@ def _build_openai_tool_definition() -> dict:
             }
         }
     }
+
+
+def _run_ollama_experiment_loop(hypothesis: str, gpu_hint: str, ollama_model: str):
+    """Run the experiment loop using a local Ollama model via OpenAI-compatible API."""
+    print_status(f"Ollama local model: {ollama_model}", "info")
+
+    # Ollama exposes OpenAI-compatible API at localhost:11434/v1
+    client = openai.OpenAI(
+        base_url="http://localhost:11434/v1",
+        api_key="ollama",  # Ollama doesn't require a real key
+    )
+    system_prompt = _build_system_prompt(gpu_hint)
+    tool_def = _build_openai_tool_definition()
+
+    # Initial conversation with hypothesis
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": f"Hypothesis: {hypothesis}"}
+    ]
+
+    max_steps = 10
+
+    for step in range(1, max_steps + 1):
+        print_status(f"Step {step}...", "dim")
+
+        try:
+            response = client.chat.completions.create(
+                model=ollama_model,
+                messages=messages,
+                tools=[tool_def],
+                tool_choice="auto",
+            )
+        except Exception as e:
+            print_status(f"API Error: {e}", "error")
+            logger.error(f"API Error: {e}")
+            break
+
+        choice = response.choices[0]
+        message = choice.message
+
+        # Process text content
+        if message.content:
+            print_panel(message.content, "Agent Message", "info")
+            log_step("MODEL", message.content)
+            emit_event("AGENT_THOUGHT", {"thought": message.content})
+
+        # Check for completion
+        if message.content and "[DONE]" in message.content:
+            print_status("Agent signaled completion.", "success")
+            break
+
+        # Append assistant message to history
+        messages.append(message.model_dump())
+
+        # Process tool calls
+        if not message.tool_calls:
+            print_status(
+                "No tool calls in this step; assuming experiment is complete.", "info"
+            )
+            break
+
+        # Execute tool calls
+        for tool_call in message.tool_calls:
+            fn_name = tool_call.function.name
+            try:
+                fn_args = json.loads(tool_call.function.arguments)
+            except json.JSONDecodeError:
+                fn_args = {}
+
+            print_panel(f"{fn_name}({fn_args})", "Tool Call", "code")
+            log_step("TOOL_CALL", f"{fn_name}({fn_args})")
+            emit_event("AGENT_TOOL", {"tool": fn_name, "args": fn_args})
+
+            if fn_name == "execute_in_sandbox":
+                result = execute_in_sandbox(**fn_args)
+            else:
+                result = (
+                    f"Unsupported tool '{fn_name}'. "
+                    "Only 'execute_in_sandbox' is available."
+                )
+
+            # Truncate long outputs
+            if isinstance(result, str) and len(result) > 20000:
+                result = (
+                    result[:10000]
+                    + "\n...[TRUNCATED]...\n"
+                    + result[-10000:]
+                )
+
+            print_panel(result, "Tool Result", "result")
+            log_step("TOOL_RESULT", "Executed")
+            emit_event("AGENT_TOOL_RESULT", {"tool": fn_name, "result": result})
+
+            # Add tool result to history
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "content": result
+            })
+
+    # Final report generation
+    try:
+        print_status("Generating Final Report...", "bold green")
+        messages.append({
+            "role": "user",
+            "content": (
+                "Generate a concise, information-dense report that explains "
+                "how you tested the hypothesis, what you observed, and your "
+                "final conclusion."
+            )
+        })
+
+        response = client.chat.completions.create(
+            model=ollama_model,
+            messages=messages,
+        )
+
+        final_report = response.choices[0].message.content or ""
+        print_panel(final_report, "Final Report", "bold green")
+    finally:
+        _close_shared_sandbox()
 
 
 def _run_openai_experiment_loop(hypothesis: str, gpu_hint: str):

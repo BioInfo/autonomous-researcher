@@ -617,6 +617,16 @@ def run_orchestrator_loop(
             default_gpu=default_gpu,
             max_parallel_experiments=max_parallel_experiments,
         )
+    elif model.startswith("ollama:"):
+        ollama_model = model.split(":", 1)[1]
+        _run_ollama_orchestrator_loop(
+            research_task=research_task,
+            num_initial_agents=num_initial_agents,
+            max_rounds=max_rounds,
+            default_gpu=default_gpu,
+            max_parallel_experiments=max_parallel_experiments,
+            ollama_model=ollama_model,
+        )
     else:
         _run_gemini_orchestrator_loop(
             research_task=research_task,
@@ -1610,6 +1620,236 @@ def _run_openai_orchestrator_loop(
     try:
         response = client.chat.completions.create(
             model="gpt-4o",
+            messages=messages,
+        )
+
+        final_paper = response.choices[0].message.content or ""
+        print_panel(final_paper, "Final Paper", "bold green")
+        log_step("ORCH_FINAL", "Final paper generated.")
+        emit_event("ORCH_PAPER", {"content": final_paper})
+
+        # Save final paper to experiment directory
+        if _experiment_dir and final_paper.strip():
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
+            sanitized_task = re.sub(r'[^\w\s-]', '', research_task)[:50].strip().replace(' ', '-').lower()
+            report_filename = f"{timestamp}_{sanitized_task}.md"
+            report_path = _experiment_dir / "reports" / report_filename
+
+            try:
+                report_path.write_text(final_paper, encoding='utf-8')
+                print_status(f"Final report saved to: {report_path}", "success")
+                log_step("REPORT_SAVED", str(report_path))
+            except Exception as e:
+                print_status(f"Failed to save report: {e}", "error")
+                logger.error(f"Failed to save report to {report_path}: {e}")
+    except Exception as e:
+        print_status(f"Failed to generate final paper: {e}", "error")
+        logger.error(f"Failed to generate final paper: {e}")
+
+
+def _run_ollama_orchestrator_loop(
+    research_task: str,
+    num_initial_agents: int,
+    max_rounds: int,
+    default_gpu: Optional[str],
+    max_parallel_experiments: int,
+    ollama_model: str,
+) -> None:
+    """Run the orchestrator loop using a local Ollama model via OpenAI-compatible API."""
+    print_status(f"Ollama local model: {ollama_model}", "info")
+
+    # Create experiment directory
+    exp_dir = _create_experiment_directory(research_task)
+    print_status(f"Experiment directory: {exp_dir}", "info")
+
+    # Set log file to experiment directory
+    log_file = exp_dir / "logs" / "orchestrator.log"
+    set_log_file(str(log_file))
+    log_step("ORCHESTRATOR_START", f"Research task: {research_task}")
+
+    # Ollama exposes OpenAI-compatible API at localhost:11434/v1
+    client = openai.OpenAI(
+        base_url="http://localhost:11434/v1",
+        api_key="ollama",  # Ollama doesn't require a real key
+    )
+    system_prompt = _build_orchestrator_system_prompt(
+        num_initial_agents=num_initial_agents,
+        max_rounds=max_rounds,
+        default_gpu_hint=default_gpu,
+        max_parallel_experiments=max_parallel_experiments,
+    )
+    tool_def = _build_openai_orchestrator_tool_definition()
+
+    # Initial conversation
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {
+            "role": "user",
+            "content": (
+                "High-level research task:\n"
+                f"{research_task}\n\n"
+                "Begin by decomposing this into concrete hypotheses and planning "
+                "which ones require empirical validation. When appropriate, "
+                "call run_researcher for hypotheses that need experiments."
+            )
+        }
+    ]
+
+    all_experiments: List[Dict[str, Any]] = []
+    max_steps = max(8, max_rounds * 3)
+
+    for step in range(1, max_steps + 1):
+        print_status(f"Orchestrator step {step}...", "dim")
+
+        try:
+            response = client.chat.completions.create(
+                model=ollama_model,
+                messages=messages,
+                tools=[tool_def],
+                tool_choice="auto",
+            )
+        except Exception as e:
+            print_status(f"Orchestrator API Error: {e}", "error")
+            logger.error(f"Orchestrator API Error: {e}")
+            break
+
+        choice = response.choices[0]
+        message = choice.message
+
+        # Process text content
+        if message.content:
+            print_panel(message.content, "Orchestrator Message", "info")
+            log_step("ORCH_MODEL", message.content)
+            emit_event("ORCH_THOUGHT", {"thought": message.content})
+
+        # Check for completion
+        if message.content and "[DONE]" in message.content:
+            display_content = message.content.replace("[DONE]", "").strip()
+            if display_content:
+                print_panel(display_content, "Final Paper", "bold green")
+                log_step("ORCH_FINAL", "Final paper generated (in loop).")
+                emit_event("ORCH_PAPER", {"content": display_content})
+                _save_final_report(display_content, research_task)
+            print_status("Orchestrator signaled completion.", "success")
+            return
+
+        # Append assistant message to history
+        messages.append(message.model_dump())
+
+        # Process tool calls
+        if not message.tool_calls:
+            print_status(
+                "Orchestrator: no tool calls in this step; assuming research is complete.",
+                "info",
+            )
+            break
+
+        # Execute tool calls
+        def _execute_single_call(tool_call):
+            fn_name = tool_call.function.name
+            try:
+                fn_args = json.loads(tool_call.function.arguments)
+            except json.JSONDecodeError:
+                fn_args = {}
+
+            print_panel(
+                f"{fn_name}({json.dumps(fn_args, indent=2)})",
+                "Orchestrator Tool Call",
+                "code",
+            )
+            log_step("ORCH_TOOL_CALL", f"{fn_name}({fn_args})")
+            emit_event("ORCH_TOOL", {"tool": fn_name, "args": fn_args})
+
+            if fn_name == "run_researcher":
+                return run_researcher(**fn_args)
+            else:
+                return {
+                    "error": (
+                        f"Unsupported tool '{fn_name}'. "
+                        "Only 'run_researcher' is available."
+                    )
+                }
+
+        max_workers = max(1, min(max_parallel_experiments, len(message.tool_calls)))
+        print_status(
+            f"Launching {len(message.tool_calls)} experiment(s) "
+            f"with up to {max_workers} in parallel...",
+            "info",
+        )
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(_execute_single_call, tc) for tc in message.tool_calls]
+
+            for future, tool_call in zip(futures, message.tool_calls):
+                result = future.result()
+
+                # Prepare display result
+                display_result = result
+                if isinstance(result, dict):
+                    display_result = dict(result)
+                    transcript = display_result.get("transcript", "")
+                    if isinstance(transcript, str) and len(transcript) > 4000:
+                        display_result["transcript"] = (
+                            transcript[:4000]
+                            + "\n...[TRANSCRIPT TRUNCATED IN VIEW; "
+                            "FULL TEXT PASSED BACK TO MODEL]..."
+                        )
+
+                print_panel(
+                    json.dumps(display_result, indent=2, ensure_ascii=False),
+                    "Orchestrator Tool Result",
+                    "result",
+                )
+                log_step("ORCH_TOOL_RESULT", "run_researcher completed")
+
+                llm_result = _build_llm_experiment_result(result)
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": json.dumps(llm_result)
+                })
+
+                if isinstance(result, dict) and "experiment_id" in result:
+                    all_experiments.append(result)
+
+        # Show experiment summary
+        if all_experiments:
+            summary_lines: List[str] = []
+            for exp in all_experiments:
+                hyp_snippet = (exp.get("hypothesis", "") or "").replace("\n", " ")
+                if len(hyp_snippet) > 80:
+                    hyp_snippet = hyp_snippet[:77] + "..."
+                summary_lines.append(
+                    f"Exp {exp.get('experiment_id')} | "
+                    f"GPU={exp.get('gpu') or 'CPU'} | "
+                    f"exit={exp.get('exit_code')} | "
+                    f"{hyp_snippet}"
+                )
+
+            print_panel(
+                "\n".join(summary_lines),
+                "Orchestrator: Experiments So Far",
+                "dim",
+            )
+            log_step("ORCH_SUMMARY", f"{len(all_experiments)} experiments run so far")
+
+    # Safety net: request final paper
+    print_status(
+        "Orchestrator loop ended without explicit [DONE]. Requesting final paper...",
+        "bold yellow",
+    )
+    messages.append({
+        "role": "user",
+        "content": (
+            "Using everything above (including all transcripts and notes), "
+            "write the final Arxiv-style paper as specified in the system prompt. "
+            "When you are finished, end with a line containing only [DONE]."
+        )
+    })
+
+    try:
+        response = client.chat.completions.create(
+            model=ollama_model,
             messages=messages,
         )
 
