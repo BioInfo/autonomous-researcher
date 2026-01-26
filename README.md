@@ -22,27 +22,26 @@ This installs missing deps, starts the API + frontend, and opens the notebook. I
 - **LLM key** (at least one):
   - Google AI Studio: `GOOGLE_API_KEY` (for Gemini 3 Pro)
   - Anthropic: `ANTHROPIC_API_KEY` (for Claude Opus 4.5)
+  - OpenAI: `OPENAI_API_KEY` (for GPT-4o)
 - **Modal tokens**: `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` (for GPU sandboxes)
 - Add them to `.env` in the repo root, or paste them into the web prompt when asked.
 
 ## Model Selection
-Choose between **Gemini 3 Pro** and **Claude Opus 4.5** from the dropdown in the web UI, or via CLI with `--model`.
+Choose between **Gemini 3 Pro**, **Claude Opus 4.5**, and **GPT-4o** from the dropdown in the web UI, or via CLI with `--model`.
 
 ## Optional CLI
-Prefer the terminal?
+Prefer the terminal? Use the wrapper (auto-creates venv):
 ```
-python -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-python main.py "Does label smoothing improve ViT-Base on CIFAR-10?" --mode single --gpu any --model gemini-3-pro-preview
+python run_cli.py "Does label smoothing improve ViT-Base on CIFAR-10?" --mode single --gpu any --model gemini-3-pro-preview
 ```
 Orchestrator (multi-agent):
 ```
-python main.py "Characterize scaling laws for sparse attention transformers" \
+python run_cli.py "Characterize scaling laws for sparse attention transformers" \
   --mode orchestrator --num-agents 3 --max-rounds 3 --max-parallel 2 --gpu any
 ```
 Dry run:
 ```
-python main.py "Sanity check the pipeline" --mode orchestrator --test-mode
+python run_cli.py "Sanity check the pipeline" --mode orchestrator --test-mode
 ```
 
 ## Deploy to Railway
