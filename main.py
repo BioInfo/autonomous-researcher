@@ -76,13 +76,18 @@ def main():
         help="Run in test mode with mock data (no LLM/GPU usage).",
     )
     parser.add_argument(
+        "--local",
+        action="store_true",
+        help="Run experiments locally instead of using Modal sandboxes.",
+    )
+    parser.add_argument(
         "--model",
         type=str,
-        choices=["gemini-3-pro-preview", "claude-opus-4-5"],
         default="gemini-3-pro-preview",
         help=(
             "LLM model to use: "
-            "'gemini-3-pro-preview' (default) or 'claude-opus-4-5'."
+            "'gemini-3-pro-preview' (default), 'claude-opus-4-5', 'gpt-4o', "
+            "or 'ollama:<model-name>' for local Ollama models (e.g., 'ollama:qwen2.5:14b')."
         ),
     )
 
@@ -97,6 +102,7 @@ def main():
             import agent as agent_module
 
             agent_module._selected_gpu = args.gpu
+            agent_module._local_mode = args.local
             run_experiment_loop(args.task, test_mode=args.test_mode, model=args.model)
         except KeyboardInterrupt:
             print_status("\nExperiment interrupted by user.", "bold red")
@@ -112,8 +118,10 @@ def main():
         print_status("Initializing Orchestrator Agent...", "bold cyan")
 
         try:
+            import orchestrator as orchestrator_module
             from orchestrator import run_orchestrator_loop
 
+            orchestrator_module._local_mode = args.local
             run_orchestrator_loop(
                 research_task=args.task,
                 num_initial_agents=args.num_agents,

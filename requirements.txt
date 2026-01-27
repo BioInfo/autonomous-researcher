@@ -1,8 +1,8 @@
 google-genai
 anthropic
+openai
 modal
 python-dotenv
 rich
 fastapi
 uvicorn[standard]
-python-dotenv
